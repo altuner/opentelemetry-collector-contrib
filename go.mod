@@ -1,4 +1,4 @@
-module github.com/open-telemetry/opentelemetry-collector-contrib
+module github.com/altuner/opentelemetry-collector-contrib
 
 go 1.19
 
