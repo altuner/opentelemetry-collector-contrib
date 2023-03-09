@@ -15,6 +15,9 @@
 package azuremonitorreceiver
 
 import (
+	// "fmt"
+	// "strings"
+
 	"context"
 	//"reflect"
 	"log"
@@ -23,9 +26,6 @@ import (
 	// "github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	// "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	// "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
-	// "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
-
-	//"go.opentelemetry.io/collector/pdata/pmetric"
 
 	//"go.opentelemetry.io/collector/receiver"
 	"github.com/stretchr/testify/require"
@@ -33,12 +33,14 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
-
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
+	// "github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	// "github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	//"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	//"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	// "go.opentelemetry.io/collector/pdata/pmetric"
+	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
+	//"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 )
 
 func TestNewScraper(t *testing.T) {
@@ -49,20 +51,55 @@ func TestNewScraper(t *testing.T) {
 	require.Len(t, scraper.resources, 0)
 }
 
-func azIdCredentialsClientFuncMock(string, string, string, *azidentity.ClientSecretCredentialOptions) (*azidentity.ClientSecretCredential, error) {
-	return &azidentity.ClientSecretCredential{}, nil
+type ConnectorMock struct {
+	ConnectorInterface
 }
 
-func armClientFuncMock(string, azcore.TokenCredential, *arm.ClientOptions) (*armresources.Client, error) {
-	return &armresources.Client{}, nil
+func (cm *ConnectorMock) Init(tenantId, clientId, clientSecret, subscriptionId string) error {
+	return nil
 }
 
-func armMonitorDefinitionsClientFuncMock(azcore.TokenCredential, *arm.ClientOptions) (*armmonitor.MetricDefinitionsClient, error) {
-	return &armmonitor.MetricDefinitionsClient{}, nil
+func (cm *ConnectorMock) GetResourcesPager(options *armresources.ClientListOptions) ResourcesPagerInterface {
+	id1 := "resourceId1"
+	return &ResourcesPagerMock{
+		current: 0,
+		pages: []armresources.ClientListResponse{
+			armresources.ClientListResponse{
+				ResourceListResult: armresources.ResourceListResult{
+					Value: []*armresources.GenericResourceExpanded{
+						&armresources.GenericResourceExpanded{
+							ID: &id1,
+						},
+					},
+				},
+			},
+			// armresources.ClientListResponse{
+			// 	Value: []*GenericResourceExpanded{
+			// 		ID: "resourceId2",
+			// 	},
+			// },
+			// armresources.ClientListResponse{
+			// 	Value: {
+			// 		ID: "resourceId3",
+			// 	},
+			// },
+		},
+	}
 }
 
-func armMonitorMetricsClientFuncMock(azcore.TokenCredential, *arm.ClientOptions) (*armmonitor.MetricsClient, error) {
-	return &armmonitor.MetricsClient{}, nil
+type ResourcesPagerMock struct {
+	current int
+	pages   []armresources.ClientListResponse
+}
+
+func (rp *ResourcesPagerMock) More() bool {
+	return rp.current < len(rp.pages)
+}
+
+func (rp *ResourcesPagerMock) NextPage(ctx context.Context) (armresources.ClientListResponse, error) {
+	page := rp.pages[rp.current]
+	rp.current++
+	return page, nil
 }
 
 func TestAzureScraperStart(t *testing.T) {
@@ -74,7 +111,7 @@ func TestAzureScraperStart(t *testing.T) {
 		host component.Host
 	}
 
-	//cfg := createDefaultConfig().(*Config)
+	cfg := createDefaultConfig().(*Config)
 
 	tests := []struct {
 		name    string
@@ -86,9 +123,7 @@ func TestAzureScraperStart(t *testing.T) {
 		{
 			name: "1st",
 			fields: fields{
-				cfg: createDefaultConfig().(*Config),
-				// cred: "",
-				// clientResources: "",
+				cfg: cfg,
 			},
 			args: args{
 				ctx:  context.Background(),
@@ -99,13 +134,9 @@ func TestAzureScraperStart(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			log.Println(tt.fields.cfg, "client-Id", tt.fields.cfg.AzureSettings.ClientId, "!!!!")
 			s := &azureScraper{
-				cfg:                             tt.fields.cfg,
-				azIdCredentialsClientFunc:       azIdCredentialsClientFuncMock,
-				armClientFunc:                   armClientFuncMock,
-				armMonitorDefinitionsClientFunc: armMonitorDefinitionsClientFuncMock,
-				armMonitorMetricsClientFunc:     armMonitorMetricsClientFuncMock,
+				cfg:       tt.fields.cfg,
+				connector: &ConnectorMock{},
 			}
 
 			if err := s.start(tt.args.ctx, tt.args.host); (err != nil) != tt.wantErr {
@@ -115,55 +146,71 @@ func TestAzureScraperStart(t *testing.T) {
 	}
 }
 
-// func TestAzureScraperScrape(t *testing.T) {
-// 	type fields struct {
-// 		// cred                     azcore.TokenCredential
-// 		// clientResources          *armresources.Client
-// 		// clientMetricsDefinitions *armmonitor.MetricDefinitionsClient
-// 		// clientMetricsValues      *armmonitor.MetricsClient
-// 		cfg *Config
-// 		// settings                 component.TelemetrySettings
-// 		// resources                map[string]*azureResource
-// 		// resourcesUpdated         int64
-// 		// mb                       *metadata.MetricsBuilder
-// 	}
-// 	type args struct {
-// 		ctx context.Context
-// 	}
-// 	tests := []struct {
-// 		name    string
-// 		fields  fields
-// 		args    args
-// 		want    pmetric.Metrics
-// 		wantErr bool
-// 	}{
-// 		// TODO: Add test cases.
-// 	}
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			s := &azureScraper{
-// 				// cred:                     tt.fields.cred,
-// 				// clientResources:          tt.fields.clientResources,
-// 				// clientMetricsDefinitions: tt.fields.clientMetricsDefinitions,
-// 				// clientMetricsValues:      tt.fields.clientMetricsValues,
-// 				cfg: tt.fields.cfg,
-// 				// settings:                 tt.fields.settings,
-// 				// resources:                tt.fields.resources,
-// 				// resourcesUpdated:         tt.fields.resourcesUpdated,
-// 				// mb:                       tt.fields.mb,
-// 			}
-// 			got, err := s.scrape(tt.args.ctx)
-// 			if (err != nil) != tt.wantErr {
-// 				s
-// 				t.Errorf("azureScraper.scrape() error = %v, wantErr %v", err, tt.wantErr)
-// 				return
-// 			}
-// 			if !reflect.DeepEqual(got, tt.want) {
-// 				t.Errorf("azureScraper.scrape() = %v, want %v", got, tt.want)
-// 			}
-// 		})
-// 	}
-// }
+func TestAzureScraperScrape(t *testing.T) {
+	type fields struct {
+		// cred                     azcore.TokenCredential
+		// clientResources          *armresources.Client
+		// clientMetricsDefinitions *armmonitor.MetricDefinitionsClient
+		// clientMetricsValues      *armmonitor.MetricsClient
+		cfg *Config
+		// settings                 component.TelemetrySettings
+		// resources                map[string]*azureResource
+		// resourcesUpdated         int64
+		// mb                       *metadata.MetricsBuilder
+	}
+	type args struct {
+		ctx context.Context
+	}
+	cfg := createDefaultConfig().(*Config)
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		//want    pmetric.Metrics
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+		{
+			name: "",
+			fields: fields{
+				cfg: cfg,
+			},
+			args: args{
+				ctx: context.Background(),
+			},
+		},
+	}
+
+	cnt := &ConnectorMock{}
+
+	opts := &armresources.ClientListOptions{}
+
+	pager := cnt.GetResourcesPager(opts)
+	ctx := context.Background()
+	log.Println("pagerdata:", pager.More())
+	page, err := pager.NextPage(ctx)
+	log.Println("pagerdata2:", *page.Value[0].ID, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := receivertest.NewNopCreateSettings()
+			s := &azureScraper{
+				cfg:       tt.fields.cfg,
+				connector: &ConnectorMock{},
+				mb:        metadata.NewMetricsBuilder(settings),
+			}
+			_, err := s.scrape(tt.args.ctx)
+			if (err != nil) != tt.wantErr {
+				//s
+				t.Errorf("azureScraper.scrape() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			// if !reflect.DeepEqual(got, tt.want) {
+			// 	t.Errorf("azureScraper.scrape() = %v, want %v", got, tt.want)
+			// }
+		})
+	}
+}
 
 // func Test_azureScraper_getResources(t *testing.T) {
 // 	type fields struct {

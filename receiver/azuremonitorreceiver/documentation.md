@@ -16,7 +16,5 @@ metrics:
 
 | Name | Description | Values | Enabled |
 | ---- | ----------- | ------ | ------- |
-| azuremonitor.client_id | Azure client ID | Any Str | false |
-| azuremonitor.client_secret | Azure client secret | Any Str | false |
 | azuremonitor.subscription_id | Azure subscription ID | Any Str | false |
 | azuremonitor.tenant_id | Azure tenant ID | Any Str | false |

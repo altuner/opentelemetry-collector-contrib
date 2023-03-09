@@ -16,32 +16,27 @@ package azuremonitorreceiver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
-	"sync"
+	//"sync"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"go.uber.org/zap"
 
 	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/pdata/pcommon"
-
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 )
 
 var (
-	errNotAuthorized = errors.New("Scraper isn't authorized")
-	timeGrains       = map[string]int64{
+	timeGrains = map[string]int64{
 		"PT1M":  60,
 		"PT5M":  300,
 		"PT15M": 900,
@@ -74,44 +69,25 @@ type void struct{}
 
 func newScraper(conf *Config, settings receiver.CreateSettings) *azureScraper {
 	return &azureScraper{
-		cfg:                             conf,
-		settings:                        settings.TelemetrySettings,
-		mb:                              metadata.NewMetricsBuilder(settings),
-		azIdCredentialsClientFunc:       azidentity.NewClientSecretCredential,
-		armClientFunc:                   armresources.NewClient,
-		armMonitorDefinitionsClientFunc: armmonitor.NewMetricDefinitionsClient,
-		armMonitorMetricsClientFunc:     armmonitor.NewMetricsClient,
+		cfg:       conf,
+		settings:  settings.TelemetrySettings,
+		mb:        metadata.NewMetricsBuilder(settings),
+		connector: &Connector{},
 	}
 }
 
 type azureScraper struct {
-	cred                            azcore.TokenCredential
-	clientResources                 *armresources.Client
-	clientMetricsDefinitions        *armmonitor.MetricDefinitionsClient
-	clientMetricsValues             *armmonitor.MetricsClient
-	cfg                             *Config
-	settings                        component.TelemetrySettings
-	resources                       map[string]*azureResource
-	resourcesUpdated                int64
-	mb                              *metadata.MetricsBuilder
-	azIdCredentialsClientFunc       func(string, string, string, *azidentity.ClientSecretCredentialOptions) (*azidentity.ClientSecretCredential, error)
-	armClientFunc                   func(string, azcore.TokenCredential, *arm.ClientOptions) (*armresources.Client, error)
-	armMonitorDefinitionsClientFunc func(azcore.TokenCredential, *arm.ClientOptions) (*armmonitor.MetricDefinitionsClient, error)
-	armMonitorMetricsClientFunc     func(azcore.TokenCredential, *arm.ClientOptions) (*armmonitor.MetricsClient, error)
+	cfg              *Config
+	settings         component.TelemetrySettings
+	resources        map[string]*azureResource
+	resourcesUpdated int64
+	mb               *metadata.MetricsBuilder
+	connector        ConnectorInterface
 }
 
 func (s *azureScraper) start(ctx context.Context, host component.Host) (err error) {
-	s.cred, err = s.azIdCredentialsClientFunc(s.cfg.TenantId, s.cfg.ClientId, s.cfg.ClientSecret, nil)
-	if err != nil {
-		log.Println("Authentication failure", err)
-		return
-	}
 
-	s.clientResources, _ = s.armClientFunc(s.cfg.SubscriptionId, s.cred, nil)
-
-	s.clientMetricsDefinitions, err = s.armMonitorDefinitionsClientFunc(s.cred, nil)
-
-	s.clientMetricsValues, _ = s.armMonitorMetricsClientFunc(s.cred, nil)
+	s.connector.Init(s.cfg.TenantId, s.cfg.ClientId, s.cfg.ClientSecret, s.cfg.SubscriptionId)
 
 	s.resources = map[string]*azureResource{}
 
@@ -119,52 +95,49 @@ func (s *azureScraper) start(ctx context.Context, host component.Host) (err erro
 }
 
 func (s *azureScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
-	if s.cred == nil {
-		return pmetric.NewMetrics(), errNotAuthorized
-	}
 
 	s.getResources(ctx)
 
-	resourcesIdsWithDefinitions := make(chan string)
+	// resourcesIdsWithDefinitions := make(chan string)
 
-	go func() {
-		defer close(resourcesIdsWithDefinitions)
-		for resourceId, _ := range s.resources {
-			s.getResourceMetricsDefinitions(ctx, resourceId)
-			resourcesIdsWithDefinitions <- resourceId
-		}
-	}()
+	// go func() {
+	// 	defer close(resourcesIdsWithDefinitions)
+	// 	for resourceId := range s.resources {
+	// 		s.getResourceMetricsDefinitions(ctx, resourceId)
+	// 		resourcesIdsWithDefinitions <- resourceId
+	// 	}
+	// }()
 
-	var wg sync.WaitGroup
+	// var resourceMetricsProgress sync.WaitGroup
 
-	for resourcesIdsWithDefinitions != nil {
-		select {
-		case resourceId, ok := <-resourcesIdsWithDefinitions:
-			if !ok {
-				resourcesIdsWithDefinitions = nil
-				break
-			}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				s.getResourceMetricsValues(ctx, resourceId)
-			}()
-		}
-	}
+	// for resourcesIdsWithDefinitions != nil {
+	// 	select {
+	// 	case resourceId, ok := <-resourcesIdsWithDefinitions:
+	// 		if !ok {
+	// 			resourcesIdsWithDefinitions = nil
+	// 			break
+	// 		}
+	// 		resourceMetricsProgress.Add(1)
+	// 		go func() {
+	// 			defer resourceMetricsProgress.Done()
+	// 			s.getResourceMetricsValues(ctx, resourceId)
+	// 		}()
+	// 	}
+	// }
 
-	wg.Wait()
+	// resourceMetricsProgress.Wait()
 
 	return s.mb.Emit(), nil
 }
 
 func (s *azureScraper) getResources(ctx context.Context) {
-
+	log.Println("getRes!", s.resourcesUpdated, s.cfg.CacheResources)
 	if time.Now().UTC().Unix() < (s.resourcesUpdated + s.cfg.CacheResources) {
 		return
 	}
-
+	log.Println("getRes2!")
 	existingResources := map[string]void{}
-	for id, _ := range s.resources {
+	for id := range s.resources {
 		existingResources[id] = void{}
 	}
 
@@ -172,16 +145,17 @@ func (s *azureScraper) getResources(ctx context.Context) {
 	resourcesFilter := strings.Join(monitorServices, "' or resourceType eq  '")
 	typeFilter := fmt.Sprintf("resourceType eq '%s'", resourcesFilter)
 
-	opts := armresources.ClientListOptions{
+	opts := &armresources.ClientListOptions{
 		Filter: &typeFilter,
 	}
 
-	pager := s.clientResources.NewListPager(&opts)
+	pager := s.connector.GetResourcesPager(opts)
 
 	for pager.More() {
 		nextResult, err := pager.NextPage(ctx)
 		if err != nil {
-			log.Println("failed to get page data", err)
+			log.Println("failed to get Azure Resources data", zap.Error(err))
+			return
 		}
 		for _, resource := range nextResult.Value {
 
@@ -196,7 +170,7 @@ func (s *azureScraper) getResources(ctx context.Context) {
 	}
 
 	if len(existingResources) > 0 {
-		for idToDelete, _ := range existingResources {
+		for idToDelete := range existingResources {
 			if _, ok := s.resources[idToDelete]; ok {
 				delete(s.resources, idToDelete)
 			}
@@ -214,11 +188,12 @@ func (s *azureScraper) getResourceMetricsDefinitions(ctx context.Context, resour
 	res := s.resources[resourceId]
 	res.metricsByGrains = map[string]*azureResourceMetrics{}
 
-	pager := s.clientMetricsDefinitions.NewListPager(resourceId, nil)
+	pager := s.connector.GetMetricsDefinitionsPager(resourceId)
 	for pager.More() {
 		nextResult, err := pager.NextPage(ctx)
 		if err != nil {
-			log.Println("failed to get page data", err)
+			s.settings.Logger.Error("failed to get Azure Metrics definitions data", zap.Error(err))
+			return
 		}
 		for _, v := range nextResult.Value {
 
@@ -265,13 +240,13 @@ func (s *azureScraper) getResourceMetricsValues(ctx context.Context, resourceId 
 				Aggregation: to.Ptr(strings.Join(aggregations, ",")),
 			}
 
-			result, err := s.clientMetricsValues.List(
+			result, err := s.connector.GetMetricsValues(
 				ctx,
 				resourceId,
 				&opts,
 			)
 			if err != nil {
-				log.Println("failed to get metrics data", err)
+				s.settings.Logger.Error("failed to get Azure Metrics values data", zap.Error(err))
 				return
 			}
 
