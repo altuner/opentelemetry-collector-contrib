@@ -17,9 +17,8 @@ package azuremonitorreceiver
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
-	//"sync"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
@@ -88,7 +87,6 @@ type azureScraper struct {
 func (s *azureScraper) start(ctx context.Context, host component.Host) (err error) {
 
 	s.connector.Init(s.cfg.TenantId, s.cfg.ClientId, s.cfg.ClientSecret, s.cfg.SubscriptionId)
-
 	s.resources = map[string]*azureResource{}
 
 	return
@@ -97,45 +95,42 @@ func (s *azureScraper) start(ctx context.Context, host component.Host) (err erro
 func (s *azureScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
 
 	s.getResources(ctx)
+	resourcesIdsWithDefinitions := make(chan string)
 
-	// resourcesIdsWithDefinitions := make(chan string)
+	go func() {
+		defer close(resourcesIdsWithDefinitions)
+		for resourceId := range s.resources {
+			s.getResourceMetricsDefinitions(ctx, resourceId)
+			resourcesIdsWithDefinitions <- resourceId
+		}
+	}()
 
-	// go func() {
-	// 	defer close(resourcesIdsWithDefinitions)
-	// 	for resourceId := range s.resources {
-	// 		s.getResourceMetricsDefinitions(ctx, resourceId)
-	// 		resourcesIdsWithDefinitions <- resourceId
-	// 	}
-	// }()
+	var resourceMetricsProgress sync.WaitGroup
 
-	// var resourceMetricsProgress sync.WaitGroup
+	for resourcesIdsWithDefinitions != nil {
+		select {
+		case resourceId, ok := <-resourcesIdsWithDefinitions:
+			if !ok {
+				resourcesIdsWithDefinitions = nil
+				break
+			}
+			resourceMetricsProgress.Add(1)
+			go func() {
+				defer resourceMetricsProgress.Done()
+				s.getResourceMetricsValues(ctx, resourceId)
+			}()
+		}
+	}
 
-	// for resourcesIdsWithDefinitions != nil {
-	// 	select {
-	// 	case resourceId, ok := <-resourcesIdsWithDefinitions:
-	// 		if !ok {
-	// 			resourcesIdsWithDefinitions = nil
-	// 			break
-	// 		}
-	// 		resourceMetricsProgress.Add(1)
-	// 		go func() {
-	// 			defer resourceMetricsProgress.Done()
-	// 			s.getResourceMetricsValues(ctx, resourceId)
-	// 		}()
-	// 	}
-	// }
-
-	// resourceMetricsProgress.Wait()
+	resourceMetricsProgress.Wait()
 
 	return s.mb.Emit(), nil
 }
 
 func (s *azureScraper) getResources(ctx context.Context) {
-	log.Println("getRes!", s.resourcesUpdated, s.cfg.CacheResources)
 	if time.Now().UTC().Unix() < (s.resourcesUpdated + s.cfg.CacheResources) {
 		return
 	}
-	log.Println("getRes2!")
 	existingResources := map[string]void{}
 	for id := range s.resources {
 		existingResources[id] = void{}
@@ -154,7 +149,7 @@ func (s *azureScraper) getResources(ctx context.Context) {
 	for pager.More() {
 		nextResult, err := pager.NextPage(ctx)
 		if err != nil {
-			log.Println("failed to get Azure Resources data", zap.Error(err))
+			s.settings.Logger.Error("failed to get Azure Resources data", zap.Error(err))
 			return
 		}
 		for _, resource := range nextResult.Value {
