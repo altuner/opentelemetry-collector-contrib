@@ -17,16 +17,17 @@ package azuremonitorreceiver
 import (
 	"errors"
 	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/configazure"
+	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/receiver/scraperhelper"
 	"go.uber.org/multierr"
 )
 
 // Predefined error responses for configuration validation failures
 var (
-	errMissingTenantId        = errors.New(`TenantId" is not specified in config`)
-	errMissingSubscriptiontId = errors.New(`SubscriptiontId" is not specified in config`)
-	errMissingClientId        = errors.New(`ClientId" is not specified in config`)
-	errMissingClientSecret    = errors.New(`ClientSecret" is not specified in config`)
+	errMissingTenantId       = errors.New(`TenantId" is not specified in config`)
+	errMissingSubscriptionId = errors.New(`SubscriptionId" is not specified in config`)
+	errMissingClientId       = errors.New(`ClientId" is not specified in config`)
+	errMissingClientSecret   = errors.New(`ClientSecret" is not specified in config`)
 
 	monitorServices = []string{
 		"Microsoft.EventGrid/eventSubscriptions",
@@ -232,6 +233,7 @@ var (
 type Config struct {
 	scraperhelper.ScraperControllerSettings `mapstructure:",squash"`
 	configazure.AzureSettings               `mapstructure:",squash"`
+	MetricsBuilderConfig                    metadata.MetricsBuilderConfig `mapstructure:",squash"`
 }
 
 // Validate validates the configuration by checking for missing or invalid fields
@@ -241,7 +243,7 @@ func (c Config) Validate() (err error) {
 	}
 
 	if c.AzureSettings.SubscriptionId == "" {
-		err = multierr.Append(err, errMissingSubscriptiontId)
+		err = multierr.Append(err, errMissingSubscriptionId)
 	}
 
 	if c.AzureSettings.ClientId == "" {

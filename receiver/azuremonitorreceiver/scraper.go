@@ -70,7 +70,7 @@ func newScraper(conf *Config, settings receiver.CreateSettings) *azureScraper {
 	return &azureScraper{
 		cfg:       conf,
 		settings:  settings.TelemetrySettings,
-		mb:        metadata.NewMetricsBuilder(settings),
+		mb:        metadata.NewMetricsBuilder(conf.MetricsBuilderConfig, settings),
 		connector: &Connector{},
 	}
 }
@@ -124,7 +124,10 @@ func (s *azureScraper) scrape(ctx context.Context) (pmetric.Metrics, error) {
 
 	resourceMetricsProgress.Wait()
 
-	return s.mb.Emit(), nil
+	return s.mb.Emit(
+		metadata.WithAzureMonitorSubscriptionID(s.cfg.SubscriptionId),
+		metadata.WithAzureMonitorTenantID(s.cfg.TenantId),
+	), nil
 }
 
 func (s *azureScraper) getResources(ctx context.Context) {

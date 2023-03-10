@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap/confmaptest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
-	"go.opentelemetry.io/collector/pdata/pmetric"
+	// "go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -46,7 +46,7 @@ func TestMetricsBuilder(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			start := pcommon.Timestamp(1_000_000_000)
-			ts := pcommon.Timestamp(1_000_001_000)
+			//ts := pcommon.Timestamp(1_000_001_000)
 			observedZapCore, observedLogs := observer.New(zap.WarnLevel)
 			settings := receivertest.NewNopCreateSettings()
 			settings.Logger = zap.New(observedZapCore)
@@ -58,7 +58,7 @@ func TestMetricsBuilder(t *testing.T) {
 			defaultMetricsCount := 0
 			allMetricsCount := 0
 
-			metrics := mb.Emit(WithAzuremonitorSubscriptionID("attr-val"), WithAzuremonitorTenantID("attr-val"))
+			metrics := mb.Emit(WithAzureMonitorSubscriptionID("attr-val"), WithAzureMonitorTenantID("attr-val"))
 
 			if test.configSet == testSetNone {
 				assert.Equal(t, 0, metrics.ResourceMetrics().Len())
@@ -71,15 +71,15 @@ func TestMetricsBuilder(t *testing.T) {
 			enabledAttrCount := 0
 			attrVal, ok := rm.Resource().Attributes().Get("azuremonitor.subscription_id")
 			attrCount++
-			assert.Equal(t, mb.resourceAttributesSettings.AzuremonitorSubscriptionID.Enabled, ok)
-			if mb.resourceAttributesSettings.AzuremonitorSubscriptionID.Enabled {
+			assert.Equal(t, mb.resourceAttributesSettings.AzureMonitorSubscriptionID.Enabled, ok)
+			if mb.resourceAttributesSettings.AzureMonitorSubscriptionID.Enabled {
 				enabledAttrCount++
 				assert.EqualValues(t, "attr-val", attrVal.Str())
 			}
 			attrVal, ok = rm.Resource().Attributes().Get("azuremonitor.tenant_id")
 			attrCount++
-			assert.Equal(t, mb.resourceAttributesSettings.AzuremonitorTenantID.Enabled, ok)
-			if mb.resourceAttributesSettings.AzuremonitorTenantID.Enabled {
+			assert.Equal(t, mb.resourceAttributesSettings.AzureMonitorTenantID.Enabled, ok)
+			if mb.resourceAttributesSettings.AzureMonitorTenantID.Enabled {
 				enabledAttrCount++
 				assert.EqualValues(t, "attr-val", attrVal.Str())
 			}
@@ -94,7 +94,7 @@ func TestMetricsBuilder(t *testing.T) {
 			if test.configSet == testSetAll {
 				assert.Equal(t, allMetricsCount, ms.Len())
 			}
-			validatedMetrics := make(map[string]bool)
+			//validatedMetrics := make(map[string]bool)
 			for i := 0; i < ms.Len(); i++ {
 				switch ms.At(i).Name() {
 				}

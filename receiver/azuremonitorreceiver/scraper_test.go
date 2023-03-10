@@ -17,7 +17,6 @@ package azuremonitorreceiver
 import (
 	"context"
 	"github.com/stretchr/testify/require"
-	"log"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
@@ -236,21 +235,13 @@ func TestAzureScraperScrape(t *testing.T) {
 		},
 	}
 
-	cnt := &ConnectorMock{}
-
-	opts := &armresources.ClientListOptions{}
-
-	pager := cnt.GetResourcesPager(opts)
-	ctx := context.Background()
-	page, err := pager.NextPage(ctx)
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := receivertest.NewNopCreateSettings()
 			s := &azureScraper{
 				cfg:       tt.fields.cfg,
 				connector: &ConnectorMock{},
-				mb:        metadata.NewMetricsBuilder(settings),
+				mb:        metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
 			}
 			s.resources = map[string]*azureResource{}
 			_, err := s.scrape(tt.args.ctx)

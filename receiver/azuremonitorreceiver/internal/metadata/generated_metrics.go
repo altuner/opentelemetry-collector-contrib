@@ -50,18 +50,29 @@ func DefaultResourceAttributesSettings() ResourceAttributesSettings {
 	}
 }
 
-func NewMetricsBuilder(settings receiver.CreateSettings, options ...metricBuilderOption) *MetricsBuilder {
+func NewMetricsBuilder(mbc MetricsBuilderConfig, settings receiver.CreateSettings, options ...metricBuilderOption) *MetricsBuilder {
 	mb := &MetricsBuilder{
 		startTime:                  pcommon.NewTimestampFromTime(time.Now()),
 		metricsBuffer:              pmetric.NewMetrics(),
 		buildInfo:                  settings.BuildInfo,
-		resourceAttributesSettings: DefaultResourceAttributesSettings(),
+		resourceAttributesSettings: mbc.ResourceAttributes,
 		metrics:                    map[string]*metricAzureAbstract{},
 	}
 	for _, op := range options {
 		op(mb)
 	}
 	return mb
+}
+
+func DefaultMetricsBuilderConfig() MetricsBuilderConfig {
+	return MetricsBuilderConfig{
+		ResourceAttributes: DefaultResourceAttributesSettings(),
+	}
+}
+
+// MetricsBuilderConfig is a structural subset of an otherwise 1-1 copy of metadata.yaml
+type MetricsBuilderConfig struct {
+	ResourceAttributes ResourceAttributesSettings `mapstructure:"resource_attributes"`
 }
 
 // MetricsBuilder provides an interface for scrapers to report metrics while taking care of all the transformations
