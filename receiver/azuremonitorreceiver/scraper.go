@@ -30,7 +30,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"go.uber.org/zap"
 
-	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 )
 
@@ -68,10 +68,10 @@ type void struct{}
 
 func newScraper(conf *Config, settings receiver.CreateSettings) *azureScraper {
 	return &azureScraper{
-		cfg:       conf,
-		settings:  settings.TelemetrySettings,
-		mb:        metadata.NewMetricsBuilder(conf.MetricsBuilderConfig, settings),
-		connector: &Connector{},
+		cfg:      conf,
+		settings: settings.TelemetrySettings,
+		mb:       metadata.NewMetricsBuilder(conf.MetricsBuilderConfig, settings),
+		wrapper:  &Wrapper{},
 	}
 }
 
@@ -81,12 +81,12 @@ type azureScraper struct {
 	resources        map[string]*azureResource
 	resourcesUpdated int64
 	mb               *metadata.MetricsBuilder
-	connector        ConnectorInterface
+	wrapper          WrapperInterface
 }
 
 func (s *azureScraper) start(ctx context.Context, host component.Host) (err error) {
 
-	s.connector.Init(s.cfg.TenantId, s.cfg.ClientId, s.cfg.ClientSecret, s.cfg.SubscriptionId)
+	s.wrapper.Init(s.cfg.TenantId, s.cfg.ClientId, s.cfg.ClientSecret, s.cfg.SubscriptionId)
 	s.resources = map[string]*azureResource{}
 
 	return
@@ -147,7 +147,7 @@ func (s *azureScraper) getResources(ctx context.Context) {
 		Filter: &typeFilter,
 	}
 
-	pager := s.connector.GetResourcesPager(opts)
+	pager := s.wrapper.GetResourcesPager(opts)
 
 	for pager.More() {
 		nextResult, err := pager.NextPage(ctx)
@@ -186,7 +186,7 @@ func (s *azureScraper) getResourceMetricsDefinitions(ctx context.Context, resour
 	res := s.resources[resourceId]
 	res.metricsByGrains = map[string]*azureResourceMetrics{}
 
-	pager := s.connector.GetMetricsDefinitionsPager(resourceId)
+	pager := s.wrapper.GetMetricsDefinitionsPager(resourceId)
 	for pager.More() {
 		nextResult, err := pager.NextPage(ctx)
 		if err != nil {
@@ -219,17 +219,17 @@ func (s *azureScraper) getResourceMetricsValues(ctx context.Context, resourceId 
 		}
 		metricsByGrain.metricsValuesUpdated = time.Now().UTC().Unix()
 
-		max, i := s.cfg.MaximumNumberOfMetricsInACall, 0
+		start, max := 0, s.cfg.MaximumNumberOfMetricsInACall
 
-		for i < len(metricsByGrain.metrics) {
+		for start < len(metricsByGrain.metrics) {
 
-			end := i + max
+			end := start + max
 			if end > len(metricsByGrain.metrics) {
 				end = len(metricsByGrain.metrics)
 			}
 
-			resType := strings.Join(metricsByGrain.metrics[i:end], ",")
-			i = end
+			resType := strings.Join(metricsByGrain.metrics[start:end], ",")
+			start = end
 
 			opts := armmonitor.MetricsClientListOptions{
 				Metricnames: &resType,
@@ -238,7 +238,7 @@ func (s *azureScraper) getResourceMetricsValues(ctx context.Context, resourceId 
 				Aggregation: to.Ptr(strings.Join(aggregations, ",")),
 			}
 
-			result, err := s.connector.GetMetricsValues(
+			result, err := s.wrapper.GetMetricsValues(
 				ctx,
 				resourceId,
 				&opts,

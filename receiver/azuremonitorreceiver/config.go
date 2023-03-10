@@ -16,8 +16,8 @@ package azuremonitorreceiver
 
 import (
 	"errors"
-	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/configazure"
-	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/configazure"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/receiver/scraperhelper"
 	"go.uber.org/multierr"
 )

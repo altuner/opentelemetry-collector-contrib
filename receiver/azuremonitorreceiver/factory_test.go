@@ -15,11 +15,80 @@
 package azuremonitorreceiver
 
 import (
+	"context"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/configazure"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/receiver/receivertest"
+	"go.opentelemetry.io/collector/receiver/scraperhelper"
 	"testing"
+	"time"
 )
 
-func NoTestNewFactory(t *testing.T) {
-	factory := NewFactory()
-	require.EqualValues(t, factory.Type(), "azuremonitor")
+func TestNewFactory(t *testing.T) {
+	testCases := []struct {
+		desc     string
+		testFunc func(*testing.T)
+	}{
+		{
+			desc: "creates a new factory with correct type",
+			testFunc: func(t *testing.T) {
+				factory := NewFactory()
+				require.EqualValues(t, typeStr, factory.Type())
+			},
+		},
+		{
+			desc: "creates a new factory with valid default config",
+			testFunc: func(t *testing.T) {
+				factory := NewFactory()
+
+				var expectedCfg component.Config = &Config{
+					ScraperControllerSettings: scraperhelper.ScraperControllerSettings{
+						CollectionInterval: 10 * time.Second,
+					},
+					AzureSettings: configazure.AzureSettings{
+						CacheResources:                24 * 60 * 60,
+						CacheResourcesDefinitions:     24 * 60 * 60,
+						MaximumNumberOfMetricsInACall: 20,
+					},
+					MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig(),
+				}
+
+				require.Equal(t, expectedCfg, factory.CreateDefaultConfig())
+			},
+		},
+		{
+			desc: "creates a new factory and CreateMetricsReceiver returns no error",
+			testFunc: func(t *testing.T) {
+				factory := NewFactory()
+				cfg := factory.CreateDefaultConfig()
+				_, err := factory.CreateMetricsReceiver(
+					context.Background(),
+					receivertest.NewNopCreateSettings(),
+					cfg,
+					consumertest.NewNop(),
+				)
+				require.NoError(t, err)
+			},
+		},
+		{
+			desc: "creates a new factory and CreateMetricsReceiver returns error with incorrect config",
+			testFunc: func(t *testing.T) {
+				factory := NewFactory()
+				_, err := factory.CreateMetricsReceiver(
+					context.Background(),
+					receivertest.NewNopCreateSettings(),
+					nil,
+					consumertest.NewNop(),
+				)
+				require.ErrorIs(t, err, errConfigNotAzureMonitor)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, tc.testFunc)
+	}
 }

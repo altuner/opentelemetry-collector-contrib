@@ -21,7 +21,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
-	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
@@ -35,105 +35,28 @@ func TestNewScraper(t *testing.T) {
 	require.Len(t, scraper.resources, 0)
 }
 
-type ConnectorMock struct {
-	ConnectorInterface
+type WrapperMock struct {
+	WrapperInterface
+
+	resourcesMockData          *ResourcesPagerMock
+	metricsDefinitionsMockData map[string]*MetricsDefinitionsPagerMockMock
+	metricsValuesMockData      map[string]armmonitor.MetricsClientListResponse
 }
 
-func (cm *ConnectorMock) Init(tenantId, clientId, clientSecret, subscriptionId string) error {
+func (wm *WrapperMock) Init(tenantId, clientId, clientSecret, subscriptionId string) error {
 	return nil
 }
 
-func (cm *ConnectorMock) GetResourcesPager(options *armresources.ClientListOptions) ResourcesPagerInterface {
-	id1, id2, id3 := "resourceId1", "resourceId2", "resourceId3"
-	return &ResourcesPagerMock{
-		current: 0,
-		pages: []armresources.ClientListResponse{
-			armresources.ClientListResponse{
-				ResourceListResult: armresources.ResourceListResult{
-					Value: []*armresources.GenericResourceExpanded{
-						&armresources.GenericResourceExpanded{
-							ID: &id1,
-						},
-					},
-				},
-			},
-			armresources.ClientListResponse{
-				ResourceListResult: armresources.ResourceListResult{
-					Value: []*armresources.GenericResourceExpanded{
-						&armresources.GenericResourceExpanded{
-							ID: &id2,
-						},
-					},
-				},
-			},
-			armresources.ClientListResponse{
-				ResourceListResult: armresources.ResourceListResult{
-					Value: []*armresources.GenericResourceExpanded{
-						&armresources.GenericResourceExpanded{
-							ID: &id3,
-						},
-					},
-				},
-			},
-		},
-	}
+func (wm *WrapperMock) GetResourcesPager(options *armresources.ClientListOptions) ResourcesPagerInterface {
+	return wm.resourcesMockData
 }
 
-func (cm *ConnectorMock) GetMetricsDefinitionsPager(resourceId string) MetricsDefinitionsPagerInterface {
-	name1 := "metric1"
-	timeGrain := "PT1M"
-	return &MetricsDefinitionsPagerMockMock{
-		current: 0,
-		pages: []armmonitor.MetricDefinitionsClientListResponse{
-			armmonitor.MetricDefinitionsClientListResponse{
-				MetricDefinitionCollection: armmonitor.MetricDefinitionCollection{
-					Value: []*armmonitor.MetricDefinition{
-						&armmonitor.MetricDefinition{
-							Name: &armmonitor.LocalizableString{
-								Value: &name1,
-							},
-							MetricAvailabilities: []*armmonitor.MetricAvailability{
-								{
-									TimeGrain: &timeGrain,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
+func (wm *WrapperMock) GetMetricsDefinitionsPager(resourceId string) MetricsDefinitionsPagerInterface {
+	return wm.metricsDefinitionsMockData[resourceId]
 }
 
-func (cm *ConnectorMock) GetMetricsValues(ctx context.Context, resourceId string, options *armmonitor.MetricsClientListOptions) (armmonitor.MetricsClientListResponse, error) {
-	name1 := "metric1"
-	var unit1 armmonitor.MetricUnit = "unit1"
-	var value1 float64 = 1
-	return armmonitor.MetricsClientListResponse{
-		Response: armmonitor.Response{
-			Value: []*armmonitor.Metric{
-				&armmonitor.Metric{
-					Name: &armmonitor.LocalizableString{
-						Value: &name1,
-					},
-					Unit: &unit1,
-					Timeseries: []*armmonitor.TimeSeriesElement{
-						&armmonitor.TimeSeriesElement{
-							Data: []*armmonitor.MetricValue{
-								&armmonitor.MetricValue{
-									Average: &value1,
-									Count:   &value1,
-									Maximum: &value1,
-									Minimum: &value1,
-									Total:   &value1,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}, nil
+func (wm *WrapperMock) GetMetricsValues(ctx context.Context, resourceId string, options *armmonitor.MetricsClientListOptions) (armmonitor.MetricsClientListResponse, error) {
+	return wm.metricsValuesMockData[resourceId], nil
 }
 
 type ResourcesPagerMock struct {
@@ -199,8 +122,8 @@ func TestAzureScraperStart(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &azureScraper{
-				cfg:       tt.fields.cfg,
-				connector: &ConnectorMock{},
+				cfg:     tt.fields.cfg,
+				wrapper: &WrapperMock{},
 			}
 
 			if err := s.start(tt.args.ctx, tt.args.host); (err != nil) != tt.wantErr {
@@ -238,17 +161,208 @@ func TestAzureScraperScrape(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := receivertest.NewNopCreateSettings()
+			w := &WrapperMock{}
+			w.resourcesMockData = getResourcesMockData()
+			w.metricsDefinitionsMockData = GetMetricsDefinitionsMockData()
+			w.metricsValuesMockData = GetMetricsValuesMockData()
+
 			s := &azureScraper{
-				cfg:       tt.fields.cfg,
-				connector: &ConnectorMock{},
-				mb:        metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
+				cfg:     tt.fields.cfg,
+				wrapper: w,
+				mb:      metadata.NewMetricsBuilder(metadata.DefaultMetricsBuilderConfig(), settings),
 			}
 			s.resources = map[string]*azureResource{}
-			_, err := s.scrape(tt.args.ctx)
+			metrics, err := s.scrape(tt.args.ctx)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("azureScraper.scrape() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+			require.EqualValues(t, 11, metrics.MetricCount(), "Scraper should have return expected number of metrics")
 		})
+	}
+}
+
+func getResourcesMockData() *ResourcesPagerMock {
+	id1, id2, id3 := "resourceId1", "resourceId2", "resourceId3"
+	return &ResourcesPagerMock{
+		current: 0,
+		pages: []armresources.ClientListResponse{
+			armresources.ClientListResponse{
+				ResourceListResult: armresources.ResourceListResult{
+					Value: []*armresources.GenericResourceExpanded{
+						&armresources.GenericResourceExpanded{
+							ID: &id1,
+						},
+					},
+				},
+			},
+			armresources.ClientListResponse{
+				ResourceListResult: armresources.ResourceListResult{
+					Value: []*armresources.GenericResourceExpanded{
+						&armresources.GenericResourceExpanded{
+							ID: &id2,
+						},
+					},
+				},
+			},
+			armresources.ClientListResponse{
+				ResourceListResult: armresources.ResourceListResult{
+					Value: []*armresources.GenericResourceExpanded{
+						&armresources.GenericResourceExpanded{
+							ID: &id3,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func GetMetricsDefinitionsMockData() map[string]*MetricsDefinitionsPagerMockMock {
+	name1 := "metric1"
+	timeGrain := "PT1M"
+	return map[string]*MetricsDefinitionsPagerMockMock{
+		"resourceId1": &MetricsDefinitionsPagerMockMock{
+			current: 0,
+			pages: []armmonitor.MetricDefinitionsClientListResponse{
+				armmonitor.MetricDefinitionsClientListResponse{
+					MetricDefinitionCollection: armmonitor.MetricDefinitionCollection{
+						Value: []*armmonitor.MetricDefinition{
+							&armmonitor.MetricDefinition{
+								Name: &armmonitor.LocalizableString{
+									Value: &name1,
+								},
+								MetricAvailabilities: []*armmonitor.MetricAvailability{
+									{
+										TimeGrain: &timeGrain,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"resourceId2": &MetricsDefinitionsPagerMockMock{
+			current: 0,
+			pages: []armmonitor.MetricDefinitionsClientListResponse{
+				armmonitor.MetricDefinitionsClientListResponse{
+					MetricDefinitionCollection: armmonitor.MetricDefinitionCollection{
+						Value: []*armmonitor.MetricDefinition{
+							&armmonitor.MetricDefinition{
+								Name: &armmonitor.LocalizableString{
+									Value: &name1,
+								},
+								MetricAvailabilities: []*armmonitor.MetricAvailability{
+									{
+										TimeGrain: &timeGrain,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"resourceId3": &MetricsDefinitionsPagerMockMock{
+			current: 0,
+			pages: []armmonitor.MetricDefinitionsClientListResponse{
+				armmonitor.MetricDefinitionsClientListResponse{
+					MetricDefinitionCollection: armmonitor.MetricDefinitionCollection{
+						Value: []*armmonitor.MetricDefinition{
+							&armmonitor.MetricDefinition{
+								Name: &armmonitor.LocalizableString{
+									Value: &name1,
+								},
+								MetricAvailabilities: []*armmonitor.MetricAvailability{
+									{
+										TimeGrain: &timeGrain,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func GetMetricsValuesMockData() map[string]armmonitor.MetricsClientListResponse {
+	name1 := "metric1"
+	var unit1 armmonitor.MetricUnit = "unit1"
+	var value1 float64 = 1
+	return map[string]armmonitor.MetricsClientListResponse{
+		"resourceId1": armmonitor.MetricsClientListResponse{
+			Response: armmonitor.Response{
+				Value: []*armmonitor.Metric{
+					&armmonitor.Metric{
+						Name: &armmonitor.LocalizableString{
+							Value: &name1,
+						},
+						Unit: &unit1,
+						Timeseries: []*armmonitor.TimeSeriesElement{
+							&armmonitor.TimeSeriesElement{
+								Data: []*armmonitor.MetricValue{
+									&armmonitor.MetricValue{
+										Average: &value1,
+										Count:   &value1,
+										Maximum: &value1,
+										Minimum: &value1,
+										Total:   &value1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"resourceId2": armmonitor.MetricsClientListResponse{
+			Response: armmonitor.Response{
+				Value: []*armmonitor.Metric{
+					&armmonitor.Metric{
+						Name: &armmonitor.LocalizableString{
+							Value: &name1,
+						},
+						Unit: &unit1,
+						Timeseries: []*armmonitor.TimeSeriesElement{
+							&armmonitor.TimeSeriesElement{
+								Data: []*armmonitor.MetricValue{
+									&armmonitor.MetricValue{
+										Average: &value1,
+										Count:   &value1,
+										Maximum: &value1,
+										Minimum: &value1,
+										Total:   &value1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"resourceId3": armmonitor.MetricsClientListResponse{
+			Response: armmonitor.Response{
+				Value: []*armmonitor.Metric{
+					&armmonitor.Metric{
+						Name: &armmonitor.LocalizableString{
+							Value: &name1,
+						},
+						Unit: &unit1,
+						Timeseries: []*armmonitor.TimeSeriesElement{
+							&armmonitor.TimeSeriesElement{
+								Data: []*armmonitor.MetricValue{
+									&armmonitor.MetricValue{
+										Count: &value1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }

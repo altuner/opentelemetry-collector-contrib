@@ -2,19 +2,14 @@
 
 # azuremonitorreceiver
 
-## Default Metrics
+## Metrics
 
-The following metrics are emitted by default. Each of them can be disabled by applying the following configuration:
-
-```yaml
-metrics:
-  <metric_name>:
-    enabled: false
-```
+The following metrics are emitted by default: https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/metrics-supported
 
 ## Resource Attributes
 
 | Name | Description | Values | Enabled |
 | ---- | ----------- | ------ | ------- |
-| azuremonitor.subscription_id | Azure subscription ID | Any Str | false |
-| azuremonitor.tenant_id | Azure tenant ID | Any Str | false |
+| azuremonitor.subscription_id | Azure subscription ID | Any Str | true |
+| azuremonitor.tenant_id | Azure tenant ID | Any Str | true |
+| azuremonitor.resource_id | Azure resource ID | Any Str | true |

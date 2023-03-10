@@ -7,49 +7,47 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
-	//"go.uber.org/zap"
-	//"log"
 )
 
-type ConnectorInterface interface {
+type WrapperInterface interface {
 	Init(tenantId, clientId, clientSecret, subscriptionId string) error
 	GetResourcesPager(*armresources.ClientListOptions) ResourcesPagerInterface
 	GetMetricsDefinitionsPager(string) MetricsDefinitionsPagerInterface
 	GetMetricsValues(ctx context.Context, resourceId string, options *armmonitor.MetricsClientListOptions) (armmonitor.MetricsClientListResponse, error)
 }
 
-type Connector struct {
+type Wrapper struct {
 	cred                     azcore.TokenCredential
 	clientResources          *armresources.Client
 	clientMetricsDefinitions *armmonitor.MetricDefinitionsClient
 	clientMetricsValues      *armmonitor.MetricsClient
 }
 
-func (c *Connector) Init(tenantId, clientId, clientSecret, subscriptionId string) error {
+func (w *Wrapper) Init(tenantId, clientId, clientSecret, subscriptionId string) error {
 	var err error
-	c.cred, err = azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
+	w.cred, err = azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
 	if err != nil {
 		return err
 	}
 
-	c.clientResources, _ = armresources.NewClient(subscriptionId, c.cred, nil)
-	c.clientMetricsDefinitions, _ = armmonitor.NewMetricDefinitionsClient(c.cred, nil)
-	c.clientMetricsValues, _ = armmonitor.NewMetricsClient(c.cred, nil)
+	w.clientResources, _ = armresources.NewClient(subscriptionId, w.cred, nil)
+	w.clientMetricsDefinitions, _ = armmonitor.NewMetricDefinitionsClient(w.cred, nil)
+	w.clientMetricsValues, _ = armmonitor.NewMetricsClient(w.cred, nil)
 	return nil
 }
 
-func (c *Connector) GetResourcesPager(options *armresources.ClientListOptions) ResourcesPagerInterface {
-	pager := c.clientResources.NewListPager(options)
+func (w *Wrapper) GetResourcesPager(options *armresources.ClientListOptions) ResourcesPagerInterface {
+	pager := w.clientResources.NewListPager(options)
 	return &ResourcesPager{pager: pager}
 }
 
-func (c *Connector) GetMetricsDefinitionsPager(resourceId string) MetricsDefinitionsPagerInterface {
-	pager := c.clientMetricsDefinitions.NewListPager(resourceId, nil)
+func (w *Wrapper) GetMetricsDefinitionsPager(resourceId string) MetricsDefinitionsPagerInterface {
+	pager := w.clientMetricsDefinitions.NewListPager(resourceId, nil)
 	return &MetricsDefinitionsPager{pager: pager}
 }
 
-func (c *Connector) GetMetricsValues(ctx context.Context, resourceId string, options *armmonitor.MetricsClientListOptions) (armmonitor.MetricsClientListResponse, error) {
-	result, err := c.clientMetricsValues.List(
+func (w *Wrapper) GetMetricsValues(ctx context.Context, resourceId string, options *armmonitor.MetricsClientListOptions) (armmonitor.MetricsClientListResponse, error) {
+	result, err := w.clientMetricsValues.List(
 		ctx,
 		resourceId,
 		options,

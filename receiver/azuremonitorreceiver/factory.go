@@ -24,7 +24,8 @@ import (
 	"go.opentelemetry.io/collector/receiver"
 	"go.opentelemetry.io/collector/receiver/scraperhelper"
 
-	"github.com/altuner/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/configazure"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/configazure"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/azuremonitorreceiver/internal/metadata"
 )
 
 const (
@@ -52,6 +53,7 @@ func createDefaultConfig() component.Config {
 			CacheResourcesDefinitions:     24 * 60 * 60,
 			MaximumNumberOfMetricsInACall: 20,
 		},
+		MetricsBuilderConfig: metadata.DefaultMetricsBuilderConfig(),
 	}
 }
 
