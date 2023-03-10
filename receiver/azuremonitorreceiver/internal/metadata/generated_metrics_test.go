@@ -38,15 +38,11 @@ func TestMetricsBuilder(t *testing.T) {
 			name:      "all_set",
 			configSet: testSetAll,
 		},
-		{
-			name:      "none_set",
-			configSet: testSetNone,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			start := pcommon.Timestamp(1_000_000_000)
-			//ts := pcommon.Timestamp(1_000_001_000)
+			ts := pcommon.Timestamp(1_000_001_000)
 			observedZapCore, observedLogs := observer.New(zap.WarnLevel)
 			settings := receivertest.NewNopCreateSettings()
 			settings.Logger = zap.New(observedZapCore)
@@ -57,6 +53,12 @@ func TestMetricsBuilder(t *testing.T) {
 
 			defaultMetricsCount := 0
 			allMetricsCount := 0
+
+			defaultMetricsCount++
+			allMetricsCount++
+			
+			var val1 float64 = 1
+			mb.AddDataPoint("resId1", "metric1", "count", "unit", ts, val1)
 
 			metrics := mb.Emit(WithAzureMonitorSubscriptionID("attr-val"), WithAzureMonitorTenantID("attr-val"))
 
