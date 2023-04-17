@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -219,7 +220,7 @@ func (mb *MetricsBuilder) addMetric(resourceMetricID, logicalMetricID, unit stri
 	return mb.metrics[resourceMetricID], nil
 }
 
-func (mb *MetricsBuilder) AddDataPoint(resourceID, metric, aggregation, unit string, ts pcommon.Timestamp, val float64) {
+func (mb *MetricsBuilder) AddDataPoint(resourceID, metric, aggregation, unit string, metadata []*armmonitor.MetadataValue, ts pcommon.Timestamp, val float64) {
 	logicalMetricID := getLogicalMetricID(metric, aggregation)
 	resourceMetricID := getLogicalResourceMetricID(resourceID, logicalMetricID)
 
@@ -236,6 +237,9 @@ func (mb *MetricsBuilder) AddDataPoint(resourceID, metric, aggregation, unit str
 	dp.SetTimestamp(ts)
 	dp.SetDoubleValue(val)
 	dp.Attributes().PutStr("azuremonitor.resource_id", resourceID)
+	for _, meta := range metadata {
+		dp.Attributes().PutStr(*meta.Name.Value, *meta.Value)
+	}
 }
 
 func getLogicalMetricID(metric, aggregation string) string {

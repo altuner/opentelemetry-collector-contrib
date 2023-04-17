@@ -259,8 +259,8 @@ func getResourcesMockData() []armresources.ClientListResponse {
 }
 
 func getMetricsDefinitionsMockData() (map[string]int, map[string][]armmonitor.MetricDefinitionsClientListResponse) {
-	name1, name2, name3, name4, name5, name6, name7, timeGrain1, timeGrain2 := "metric1", "metric2",
-		"metric3", "metric4", "metric5", "metric6", "metric7", "PT1M", "PT1H"
+	name1, name2, name3, name4, name5, name6, name7, timeGrain1, timeGrain2, dim1, dim2 := "metric1", "metric2",
+		"metric3", "metric4", "metric5", "metric6", "metric7", "PT1M", "PT1H", "dimName1", "dimName2"
 
 	counters := map[string]int{
 		"resourceId1": 0,
@@ -280,6 +280,14 @@ func getMetricsDefinitionsMockData() (map[string]int, map[string][]armmonitor.Me
 							MetricAvailabilities: []*armmonitor.MetricAvailability{
 								{
 									TimeGrain: &timeGrain1,
+								},
+							},
+							Dimensions: []*armmonitor.LocalizableString{
+								{
+									Value: &dim1,
+								},
+								{
+									Value: &dim2,
 								},
 							},
 						},
@@ -318,6 +326,11 @@ func getMetricsDefinitionsMockData() (map[string]int, map[string][]armmonitor.Me
 							MetricAvailabilities: []*armmonitor.MetricAvailability{
 								{
 									TimeGrain: &timeGrain1,
+								},
+							},
+							Dimensions: []*armmonitor.LocalizableString{
+								{
+									Value: &dim1,
 								},
 							},
 						},
@@ -368,10 +381,12 @@ func getMetricsDefinitionsMockData() (map[string]int, map[string][]armmonitor.Me
 }
 
 func getMetricsValuesMockData() map[string]map[string]armmonitor.MetricsClientListResponse {
-	name1, name2, name3, name4, name5, name6, name7 := "metric1", "metric2", "metric3",
-		"metric4", "metric5", "metric6", "metric7"
+
+	name1, name2, name3, name4, name5, name6, name7, dim1, dim2, dimVal1, dimVal2 := "metric1", "metric2", "metric3",
+		"metric4", "metric5", "metric6", "metric7", "dimName1", "dimName2", "dimVal1", "dimVal2"
+
 	var unit1 armmonitor.MetricUnit = "unit1"
-	var value1 float64 = 1
+	var value1, value2 float64 = 1, 10
 
 	return map[string]map[string]armmonitor.MetricsClientListResponse{
 		"resourceId1": {
@@ -392,6 +407,35 @@ func getMetricsValuesMockData() map[string]map[string]armmonitor.MetricsClientLi
 											Maximum: &value1,
 											Minimum: &value1,
 											Total:   &value1,
+										},
+									},
+									Metadatavalues: []*armmonitor.MetadataValue{
+										{Name: &armmonitor.LocalizableString{Value: &dim1},
+											Value: &dimVal1,
+										},
+									},
+								},
+							},
+						},
+						{
+							Name: &armmonitor.LocalizableString{
+								Value: &name1,
+							},
+							Unit: &unit1,
+							Timeseries: []*armmonitor.TimeSeriesElement{
+								{
+									Data: []*armmonitor.MetricValue{
+										{
+											Average: &value2,
+											Count:   &value2,
+											Maximum: &value2,
+											Minimum: &value2,
+											Total:   &value2,
+										},
+									},
+									Metadatavalues: []*armmonitor.MetadataValue{
+										{Name: &armmonitor.LocalizableString{Value: &dim2},
+											Value: &dimVal2,
 										},
 									},
 								},

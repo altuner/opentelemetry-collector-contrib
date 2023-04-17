@@ -17,6 +17,7 @@ package azuremonitorreceiver // import "github.com/open-telemetry/opentelemetry-
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"sync"
 	"time"
@@ -57,9 +58,22 @@ var (
 	}
 )
 
+// MetricKey type to hold dimension and timegrain and used as key in storing metrics
+type MetricKey struct {
+	dimension string
+	timegrain string
+}
+
+func (mk MetricKey) Hash() uint64 {
+	h := fnv.New64a()
+	h.Write([]byte(mk.dimension))
+	h.Write([]byte(fmt.Sprint(mk.timegrain)))
+	return h.Sum64()
+}
+
 type azureResource struct {
-	metricsByGrains           map[string]*azureResourceMetrics
-	metricsDefinitionsUpdated time.Time
+	metricsByDimensionsAndGrain map[MetricKey]*azureResourceMetrics
+	metricsDefinitionsUpdated   time.Time
 }
 
 type azureResourceMetrics struct {
@@ -231,7 +245,7 @@ func (s *azureScraper) getResourceMetricsDefinitions(ctx context.Context, resour
 	}
 
 	res := s.resources[resourceID]
-	res.metricsByGrains = map[string]*azureResourceMetrics{}
+	res.metricsByDimensionsAndGrain = map[MetricKey]*azureResourceMetrics{}
 
 	pager := s.clientMetricsDefinitions.NewListPager(resourceID, nil)
 	for pager.More() {
@@ -244,11 +258,23 @@ func (s *azureScraper) getResourceMetricsDefinitions(ctx context.Context, resour
 
 			timeGrain := *v.MetricAvailabilities[0].TimeGrain
 			name := *v.Name.Value
-
-			if _, ok := res.metricsByGrains[timeGrain]; ok {
-				res.metricsByGrains[timeGrain].metrics = append(res.metricsByGrains[timeGrain].metrics, name)
-			} else {
-				res.metricsByGrains[timeGrain] = &azureResourceMetrics{metrics: []string{name}}
+			var key MetricKey
+			if len(v.Dimensions) > 0 {
+				for _, dimension := range v.Dimensions {
+					key = MetricKey{dimension: *dimension.Value, timegrain: timeGrain}
+					if _, ok := res.metricsByDimensionsAndGrain[key]; ok {
+						res.metricsByDimensionsAndGrain[key].metrics = append(res.metricsByDimensionsAndGrain[key].metrics, name)
+					} else {
+						res.metricsByDimensionsAndGrain[key] = &azureResourceMetrics{metrics: []string{name}}
+					}
+				}
+			} else { // no dimension, add metrics with timegrain only
+				key = MetricKey{timegrain: timeGrain}
+				if _, ok := res.metricsByDimensionsAndGrain[key]; ok {
+					res.metricsByDimensionsAndGrain[key].metrics = append(res.metricsByDimensionsAndGrain[key].metrics, name)
+				} else {
+					res.metricsByDimensionsAndGrain[key] = &azureResourceMetrics{metrics: []string{name}}
+				}
 			}
 		}
 	}
@@ -258,23 +284,29 @@ func (s *azureScraper) getResourceMetricsDefinitions(ctx context.Context, resour
 func (s *azureScraper) getResourceMetricsValues(ctx context.Context, resourceID string) {
 	res := *s.resources[resourceID]
 
-	for timeGrain, metricsByGrain := range res.metricsByGrains {
+	for metricKey, metricsByDimGrain := range res.metricsByDimensionsAndGrain {
 
-		if time.Since(metricsByGrain.metricsValuesUpdated).Seconds() < float64(timeGrains[timeGrain]) {
+		if time.Since(metricsByDimGrain.metricsValuesUpdated).Seconds() < float64(timeGrains[metricKey.timegrain]) {
 			continue
 		}
-		metricsByGrain.metricsValuesUpdated = time.Now()
+		metricsByDimGrain.metricsValuesUpdated = time.Now()
 
 		start := 0
 
-		for start < len(metricsByGrain.metrics) {
+		for start < len(metricsByDimGrain.metrics) {
 
 			end := start + s.cfg.MaximumNumberOfMetricsInACall
-			if end > len(metricsByGrain.metrics) {
-				end = len(metricsByGrain.metrics)
+			if end > len(metricsByDimGrain.metrics) {
+				end = len(metricsByDimGrain.metrics)
 			}
 
-			opts := getResourceMetricsValuesRequestOptions(metricsByGrain.metrics, timeGrain, start, end)
+			var opts armmonitor.MetricsClientListOptions
+			if len(metricKey.dimension) > 0 {
+				filter := metricKey.dimension + " eq '*'" // dimension filter
+				opts = s.getResourceMetricsValuesRequestOptions(metricsByDimGrain.metrics, metricKey.timegrain, filter, start, end)
+			} else {
+				opts = s.getResourceMetricsValuesRequestOptions(metricsByDimGrain.metrics, metricKey.timegrain, "", start, end)
+			}
 			start = end
 
 			result, err := s.clientMetricsValues.List(
@@ -292,7 +324,7 @@ func (s *azureScraper) getResourceMetricsValues(ctx context.Context, resourceID 
 				for _, timeserie := range metric.Timeseries {
 					if timeserie.Data != nil {
 						for _, timeserieData := range timeserie.Data {
-							s.processTimeserieData(resourceID, metric, timeserieData)
+							s.processTimeserieData(resourceID, metric, timeserieData, timeserie.Metadatavalues)
 						}
 					}
 				}
@@ -301,17 +333,21 @@ func (s *azureScraper) getResourceMetricsValues(ctx context.Context, resourceID 
 	}
 }
 
-func getResourceMetricsValuesRequestOptions(metrics []string, timeGrain string, start int, end int) armmonitor.MetricsClientListOptions {
+func (s *azureScraper) getResourceMetricsValuesRequestOptions(metrics []string, timeGrain string, filter string, start int, end int) armmonitor.MetricsClientListOptions {
 	resType := strings.Join(metrics[start:end], ",")
-	return armmonitor.MetricsClientListOptions{
+	options := armmonitor.MetricsClientListOptions{
 		Metricnames: &resType,
 		Interval:    to.Ptr(timeGrain),
 		Timespan:    to.Ptr(timeGrain),
 		Aggregation: to.Ptr(strings.Join(aggregations, ",")),
 	}
+	if len(filter) > 0 {
+		options.Filter = &filter
+	}
+	return options
 }
 
-func (s *azureScraper) processTimeserieData(resourceID string, metric *armmonitor.Metric, timeserieData *armmonitor.MetricValue) {
+func (s *azureScraper) processTimeserieData(resourceID string, metric *armmonitor.Metric, timeserieData *armmonitor.MetricValue, metadata []*armmonitor.MetadataValue) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -329,7 +365,7 @@ func (s *azureScraper) processTimeserieData(resourceID string, metric *armmonito
 	}
 	for _, aggregation := range aggregationsData {
 		if aggregation.value != nil {
-			s.mb.AddDataPoint(resourceID, *metric.Name.Value, aggregation.name, string(*metric.Unit), ts, *aggregation.value)
+			s.mb.AddDataPoint(resourceID, *metric.Name.Value, aggregation.name, string(*metric.Unit), metadata, ts, *aggregation.value)
 		}
 	}
 }

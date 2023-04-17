@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/component"
@@ -56,7 +57,8 @@ func TestMetricsBuilder(t *testing.T) {
 			allMetricsCount++
 
 			var val1 float64 = 1
-			mb.AddDataPoint("resId1", "metric1", "count", "unit", ts, val1)
+			metadata := []*armmonitor.MetadataValue{}
+			mb.AddDataPoint("resId1", "metric1", "count", "unit", metadata, ts, val1)
 
 			metrics := mb.Emit(WithAzureMonitorSubscriptionID("attr-val"), WithAzureMonitorTenantID("attr-val"))
 
